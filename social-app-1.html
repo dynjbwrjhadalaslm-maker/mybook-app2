@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<title>MyBook - সোশ্যাল অ্যাপ</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; }
+  body { background: #f0f2f5; }
+  .navbar { background: #1877f2; color: white; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; }
+  .navbar h1 { font-size: 22px; }
+  .container { max-width: 500px; margin: 20px auto; padding: 0 10px; }
+  .card { background: white; border-radius: 10px; padding: 16px; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  input, textarea, button { width: 100%; padding: 10px; margin: 6px 0; border-radius: 6px; border: 1px solid #ddd; font-size: 15px; }
+  button { background: #1877f2; color: white; border: none; cursor: pointer; font-weight: bold; }
+  button:hover { background: #145dc4; }
+  .post { border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 10px; }
+  .post-author { font-weight: bold; color: #1877f2; }
+  .post-time { font-size: 12px; color: #888; }
+  .like-btn { width: auto; background: none; color: #555; border: 1px solid #ddd; padding: 6px 14px; margin-right: 8px; }
+  .like-btn.liked { color: #1877f2; font-weight: bold; }
+  .hidden { display: none; }
+  #userInfo { color: white; font-size: 14px; }
+  #logoutBtn { width: auto; background: #e4e6eb; color: #333; padding: 6px 14px; }
+</style>
+</head>
+<body>
+
+<div class="navbar">
+  <h1>📘 MyBook</h1>
+  <div id="userInfo"></div>
+</div>
+
+<div class="container">
+
+  <!-- লগইন / সাইনআপ ফর্ম -->
+  <div id="authBox" class="card">
+    <h2 style="margin-bottom:10px;">লগইন করুন</h2>
+    <input type="email" id="email" placeholder="ইমেইল">
+    <input type="password" id="password" placeholder="পাসওয়ার্ড">
+    <button onclick="signUp()">সাইন আপ (নতুন অ্যাকাউন্ট)</button>
+    <button onclick="logIn()" style="background:#42b72a; margin-top:8px;">লগইন</button>
+    <p id="authError" style="color:red; font-size:13px; margin-top:6px;"></p>
+  </div>
+
+  <!-- মূল অ্যাপ (লগইনের পর দেখা যাবে) -->
+  <div id="appBox" class="hidden">
+    <div class="card">
+      <textarea id="postText" placeholder="আপনার মনে কী চলছে?" rows="3"></textarea>
+      <button onclick="createPost()">পোস্ট করুন</button>
+    </div>
+
+    <div id="feed"></div>
+  </div>
+
+</div>
+
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+<script>
+/* ================================================================
+   ধাপ ১: এখানে আপনার নিজের Firebase কনফিগ বসান
+   কীভাবে পাবেন: firebase.google.com -> Console -> Add Project
+   -> Project Settings -> "Add app" (Web) -> এখান থেকে কপি করুন
+   ================================================================ */
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
+};
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+// ---------------- সাইন আপ ----------------
+function signUp() {
+  const email = document.getElementById('email').value;
+  const password = document.getElementById('password').value;
+  auth.createUserWithEmailAndPassword(email, password)
+    .catch(err => document.getElementById('authError').innerText = err.message);
+}
+
+// ---------------- লগইন ----------------
+function logIn() {
+  const email = document.getElementById('email').value;
+  const password = document.getElementById('password').value;
+  auth.signInWithEmailAndPassword(email, password)
+    .catch(err => document.getElementById('authError').innerText = err.message);
+}
+
+// ---------------- লগআউট ----------------
+function logOut() {
+  auth.signOut();
+}
+
+// ---------------- লগইন স্ট্যাটাস চেক ----------------
+auth.onAuthStateChanged(user => {
+  if (user) {
+    document.getElementById('authBox').classList.add('hidden');
+    document.getElementById('appBox').classList.remove('hidden');
+    document.getElementById('userInfo').innerHTML =
+      user.email + ' &nbsp; <button id="logoutBtn" onclick="logOut()">লগআউট</button>';
+    loadFeed();
+  } else {
+    document.getElementById('authBox').classList.remove('hidden');
+    document.getElementById('appBox').classList.add('hidden');
+    document.getElementById('userInfo').innerHTML = '';
+  }
+});
+
+// ---------------- পোস্ট তৈরি করা ----------------
+function createPost() {
+  const text = document.getElementById('postText').value.trim();
+  if (!text) return;
+  db.collection('posts').add({
+    text: text,
+    author: auth.currentUser.email,
+    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    likes: []
+  });
+  document.getElementById('postText').value = '';
+}
+
+// ---------------- ফিড লোড করা (রিয়েল-টাইম) ----------------
+function loadFeed() {
+  db.collection('posts').orderBy('createdAt', 'desc').onSnapshot(snapshot => {
+    const feed = document.getElementById('feed');
+    feed.innerHTML = '';
+    snapshot.forEach(doc => {
+      const post = doc.data();
+      const liked = (post.likes || []).includes(auth.currentUser.email);
+      const div = document.createElement('div');
+      div.className = 'card';
+      div.innerHTML = `
+        <div class="post">
+          <div class="post-author">${post.author}</div>
+          <div class="post-time">${post.createdAt ? post.createdAt.toDate().toLocaleString('bn-BD') : 'এখন'}</div>
+          <p style="margin:8px 0;">${escapeHtml(post.text)}</p>
+          <button class="like-btn ${liked ? 'liked' : ''}" onclick="toggleLike('${doc.id}')">
+            👍 লাইক (${(post.likes || []).length})
+          </button>
+        </div>`;
+      feed.appendChild(div);
+    });
+  });
+}
+
+// ---------------- লাইক / আনলাইক ----------------
+function toggleLike(postId) {
+  const ref = db.collection('posts').doc(postId);
+  const email = auth.currentUser.email;
+  db.runTransaction(async t => {
+    const doc = await t.get(ref);
+    let likes = doc.data().likes || [];
+    if (likes.includes(email)) {
+      likes = likes.filter(e => e !== email);
+    } else {
+      likes.push(email);
+    }
+    t.update(ref, { likes });
+  });
+}
+
+function escapeHtml(str) {
+  const d = document.createElement('div');
+  d.innerText = str;
+  return d.innerHTML;
+}
+</script>
+
+</body>
+</html>
